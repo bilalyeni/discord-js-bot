@@ -7,7 +7,7 @@ const {
   StringSelectMenuBuilder,
   ComponentType,
 } = require("discord.js");
-const { TICKET } = require("@root/config.js");
+const { TICKET, EMBED_COLORS, EMOJI, PRESENCE } = require("@root/config.js");
 
 // schemas
 const { getSettings } = require("@schemas/Guild");
@@ -96,19 +96,19 @@ async function closeTicket(channel, closedBy, reason) {
 
     if (channel.deletable) await channel.delete();
 
-    const embed = new EmbedBuilder().setAuthor({ name: "Ticket Closed" }).setColor(TICKET.CLOSE_EMBED);
+    const embed = new EmbedBuilder().setAuthor({ name: `${EMOJI.INFO} Ticket Kapatıldı`}).setColor(EMBED_COLORS.BOT_EMBED);
     const fields = [];
 
-    if (reason) fields.push({ name: "Reason", value: reason, inline: false });
+    if (reason) fields.push({ name: "Sebep", value: reason, inline: false });
     fields.push(
       {
-        name: "Opened By",
-        value: ticketDetails.user ? ticketDetails.user.username : "Unknown",
+        name: "Açan",
+        value: ticketDetails.user ? ticketDetails.user.username : "Bilinmiyor",
         inline: true,
       },
       {
-        name: "Closed By",
-        value: closedBy ? closedBy.username : "Unknown",
+        name: "Kapatan",
+        value: closedBy ? closedBy.username : "Bilinmiyor",
         inline: true,
       }
     );
@@ -122,12 +122,12 @@ async function closeTicket(channel, closedBy, reason) {
     }
 
     // send embed to user
-    if (ticketDetails.user) {
+    /*if (ticketDetails.user) {
       const dmEmbed = embed
         .setDescription(`**Server:** ${channel.guild.name}\n**Category:** ${ticketDetails.catName}`)
         .setThumbnail(channel.guild.iconURL());
       ticketDetails.user.send({ embeds: [dmEmbed], components }).catch((ex) => {});
-    }
+    }*/
 
     return "SUCCESS";
   } catch (ex) {
@@ -166,14 +166,24 @@ async function handleTicketOpen(interaction) {
       "Cannot create ticket channel, missing `Manage Channel` permission. Contact server manager for help!"
     );
 
+  const already = new EmbedBuilder()
+  .setColor(EMBED_COLORS.ERROR)
+  .setTitle(`${EMOJI.WRONG} You already have an open ticket!`)
+  .setDescription(`***Halihazırda açık bir biletiniz var.***`)
+  .setFooter({text: PRESENCE.FOOTER, iconURL: interaction.client.user.avatarURL() })
   const alreadyExists = getExistingTicketChannel(guild, user.id);
-  if (alreadyExists) return interaction.followUp(`You already have an open ticket`);
+  if (alreadyExists) return interaction.followUp({ embeds: [already], components: [] });
 
   const settings = await getSettings(guild);
 
   // limit check
+  const limit = new EmbedBuilder()
+  .setColor(EMBED_COLORS.ERROR)
+  .setTitle(`${EMOJI.WRONG} There are too many open tickets, try again later!`)
+  .setDescription(`***Bilet sistemimiz şuan aşırı yoğun, lütfen daha sonra tekrar deneyin.***`)
+  .setFooter({text: PRESENCE.FOOTER, iconURL: interaction.client.user.avatarURL() })
   const existing = getTicketChannels(guild).size;
-  if (existing > settings.ticket.limit) return interaction.followUp("There are too many open tickets. Try again later");
+  if (existing > settings.ticket.limit) return interaction.followUp({ embeds: [limit], components: [] });
 
   // check categories
   let catName = null;
@@ -185,11 +195,17 @@ async function handleTicketOpen(interaction) {
     const menuRow = new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId("ticket-menu")
-        .setPlaceholder("Choose the ticket category")
+        .setPlaceholder("Choose the ticket category / Bilet kategorisi seçin")
         .addOptions(options)
     );
 
-    await interaction.followUp({ content: "Please choose a ticket category", components: [menuRow] });
+    const category = new EmbedBuilder()
+        .setColor(EMBED_COLORS.BOT_EMBED)
+        .setTitle(`${EMOJI.LOADING} Please choose a ticket category!`)
+        .setDescription(`***Lütfen bilet açmak istediğiniz kategoriyi seçin.***`)
+        .setFooter({text: PRESENCE.FOOTER, iconURL: interaction.client.user.avatarURL() })
+
+    await interaction.followUp({ embeds: [category], components: [menuRow] });
     const res = await interaction.channel
       .awaitMessageComponent({
         componentType: ComponentType.StringSelect,
@@ -199,8 +215,20 @@ async function handleTicketOpen(interaction) {
         if (err.message.includes("time")) return;
       });
 
-    if (!res) return interaction.editReply({ content: "Timed out. Try again", components: [] });
-    await interaction.editReply({ content: "Processing", components: [] });
+      const timed = new EmbedBuilder()
+        .setColor(EMBED_COLORS.ERROR)
+        .setTitle(`${EMOJI.WRONG} Request timed out, try again!`)
+        .setDescription(`***İstek zaman aşımına uğradı, tekrar deneyin.***`)
+        .setFooter({text: PRESENCE.FOOTER, iconURL: interaction.client.user.avatarURL() })
+
+      const processing = new EmbedBuilder()
+        .setColor(EMBED_COLORS.BOT_EMBED)
+        .setTitle(`${EMOJI.LOADING} Creating your ticket...`)
+        .setDescription(`***Biletiniz oluşturuluyor...***`)
+        .setFooter({text: PRESENCE.FOOTER, iconURL: interaction.client.user.avatarURL() })
+
+    if (!res) return interaction.editReply({ embeds: [timed], components: [] });
+    await interaction.editReply({ embeds: [processing], components: [] });
     catName = res.values[0];
     catPerms = categories.find((cat) => cat.name === catName)?.staff_roles || [];
   }
@@ -241,32 +269,40 @@ async function handleTicketOpen(interaction) {
     });
 
     const embed = new EmbedBuilder()
-      .setAuthor({ name: `Ticket #${ticketNumber}` })
-      .setDescription(
+        .setColor(EMBED_COLORS.BOT_EMBED)
+        .setAuthor({ name: `Ticket for: ${interaction.user.tag} #${ticketNumber}`, iconURL: interaction.user.displayAvatarURL() }) 
+        .setDescription(`> *Merhaba, bilet açtığınız için teşekkür ederiz. Personellerimiz sizinle ilgilenene kadar bilet açma sebebinizi açıklayabilirsiniz. Mesajlaşmalarınız kayıt altına alınmaktadır.*\n \n> *Hello, thank you for opening a ticket. You can explain the reason for opening a ticket until our staff can take care of you.*`)
+        .setThumbnail(interaction.guild.iconURL())
+      /*.setDescription(
         `Hello ${user.toString()}
         Support will be with you shortly
         ${catName ? `\n**Category:** ${catName}` : ""}
         `
-      )
-      .setFooter({ text: "You may close your ticket anytime by clicking the button below" });
-
+      )*/
+      
+      const embed2 = new EmbedBuilder()
+        .setColor(EMBED_COLORS.BOT_EMBED)
+        .setAuthor({ name: `A staff member will claim this ticket soon!`, iconURL: `https://cdn.discordapp.com/emojis/833101350623117342.gif?size=512` }) 
+        .setDescription(`> *Personellerimiz kısa süre içerisinde biletinize dönüş yapacak, lütfen sabırlı olun. Anlayışınız için teşekkür ederiz.*`)
+        .setFooter({text: PRESENCE.FOOTER, iconURL: interaction.client.user.avatarURL() })
     let buttonsRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setLabel("Close Ticket")
         .setCustomId("TICKET_CLOSE")
         .setEmoji("🔒")
-        .setStyle(ButtonStyle.Primary)
+        .setStyle(ButtonStyle.Danger)
     );
 
-    const sent = await tktChannel.send({ content: user.toString(), embeds: [embed], components: [buttonsRow] });
+    const sent = await tktChannel.send({ content: user.toString(), embeds: [embed, embed2], components: [buttonsRow] });
 
-    const dmEmbed = new EmbedBuilder()
-      .setColor(TICKET.CREATE_EMBED)
+   /*const dmEmbed = new EmbedBuilder()
+      .setColor(EMBED_COLORS.BOT_EMBED)
       .setAuthor({ name: "Ticket Created" })
       .setThumbnail(guild.iconURL())
       .setDescription(
-        `**Server:** ${guild.name}
-        ${catName ? `**Category:** ${catName}` : ""}
+        `Bilet açtığınız için teşekkürler, kısa süre içinde kanal üzerinden sizinle iletişime geçeceğiz.
+        **Server:** ${guild.name}
+        ${catName ? `**Kategori:** ${catName}` : ""}
         `
       );
 
@@ -275,11 +311,22 @@ async function handleTicketOpen(interaction) {
     );
 
     user.send({ embeds: [dmEmbed], components: [row] }).catch((ex) => {});
+*/
+    const successfuly = new EmbedBuilder()
+        .setColor(EMBED_COLORS.SUCCESS)
+        .setTitle(`${EMOJI.CORRECT} Successfuly created your ticket!`)
+        .setDescription(`***Biletiniz başarıyla oluşturuldu!***`)
+        .setFooter({text: PRESENCE.FOOTER, iconURL: interaction.client.user.avatarURL() })
 
-    await interaction.editReply(`Ticket created! 🔥`);
+    await interaction.editReply({ embeds: [successfuly], components: [] });
   } catch (ex) {
     error("handleTicketOpen", ex);
-    return interaction.editReply("Failed to create ticket channel, an error occurred!");
+    const unsuccessfuly = new EmbedBuilder()
+        .setColor(EMBED_COLORS.ERROR)
+        .setTitle(`${EMOJI.ERROR} An error has occurred while creating your ticket!`)
+        .setDescription(`***Biletiniz oluşturulurken bir hata oluştu!***`)
+        .setFooter({text: PRESENCE.FOOTER, iconURL: interaction.client.user.avatarURL() })
+    return interaction.editReply({ embeds: [unsuccessfuly], components: [] });
   }
 }
 
